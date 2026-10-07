@@ -72,7 +72,8 @@ void AchievementManager::EarnAchievement(const uint64_t xuid,
   default_achievements_backend_->EarnAchievement(xuid, title_id,
                                                  achievement_id);
 
-  if (!cvars::show_achievement_notification) {
+  // The Xbox 360 style toast is shown whenever its resources are installed.
+  if (!cvars::show_achievement_notification && !ui::X360ToastScene::Get()) {
     return;
   }
 
