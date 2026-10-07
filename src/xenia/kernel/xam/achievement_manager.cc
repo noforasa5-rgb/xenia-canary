@@ -15,6 +15,7 @@
 #include "xenia/kernel/xam/achievement_backends/gpd_achievement_backend.h"
 #include "xenia/kernel/xam/xdbf/gpd_info.h"
 #include "xenia/ui/imgui_guest_notification.h"
+#include "xenia/ui/x360_toast.h"
 
 DEFINE_bool(show_achievement_notification, false,
             "Show achievement notification on screen.", "UI");
@@ -149,6 +150,20 @@ void AchievementManager::ShowAchievementEarnedNotification(
   ui::WindowedAppContext& app_context =
       emulator->display_window()->app_context();
   ui::ImGuiDrawer* imgui_drawer = emulator->imgui_drawer();
+
+  if (const ui::X360ToastScene* x360_toast = ui::X360ToastScene::Get()) {
+    const std::string x360_title = x360_toast->title_text;
+    const std::string x360_description = x360_toast->FormatDescription(
+        achievement->gamerscore, xe::to_utf8(achievement->achievement_name));
+    const uint8_t position =
+        static_cast<uint8_t>(kernel_state()->notification_position_);
+    app_context.CallInUIThread(
+        [imgui_drawer, x360_title, x360_description, position]() {
+          new xe::ui::X360AchievementToast(imgui_drawer, x360_title,
+                                           x360_description, 0, position);
+        });
+    return;
+  }
 
   app_context.CallInUIThread([imgui_drawer, description]() {
     new xe::ui::AchievementNotificationWindow(

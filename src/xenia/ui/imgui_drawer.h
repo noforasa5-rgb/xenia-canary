@@ -12,6 +12,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -79,6 +81,14 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
     return notification_icon_textures_.at(user_index).get();
   }
 
+  // Loads (once) and returns a texture from an image file. Returns nullptr if
+  // the file can't be loaded. Textures are released when the immediate drawer
+  // changes.
+  ImmediateTexture* GetFileTexture(const std::filesystem::path& path);
+
+  // Font for the Xbox 360 style achievement toast, nullptr if not available.
+  ImFont* GetX360Font() const { return x360_font_; }
+
   ImmediateTexture* GetLockedAchievementIcon() {
     return locked_achievement_icon_.get();
   }
@@ -112,6 +122,7 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
   bool LoadCustomFont(ImGuiIO& io, ImFontConfig& font_config, float font_size);
   bool LoadWindowsFont(ImGuiIO& io, ImFontConfig& font_config, float font_size);
   bool LoadJapaneseFont(ImGuiIO& io, float font_size);
+  void LoadX360ToastFont(ImGuiIO& io);
 
   void SetupNotificationTextures();
   void SetupFontTexture();
@@ -157,6 +168,9 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
   std::unique_ptr<ImmediateTexture> locked_achievement_icon_;
 
   std::vector<std::unique_ptr<ImmediateTexture>> notification_icon_textures_;
+  std::map<std::filesystem::path, std::unique_ptr<ImmediateTexture>>
+      file_textures_;
+  ImFont* x360_font_ = nullptr;
 
   // If there's an active pointer, the ImGui mouse is controlled by this touch.
   // If it's TouchEvent::kPointerIDNone, the ImGui mouse is controlled by the

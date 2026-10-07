@@ -11,6 +11,7 @@
 
 #include <cfloat>
 #include <cstring>
+#include <fstream>
 #include <ranges>
 
 #include "third_party/imgui/imgui.h"
@@ -23,6 +24,7 @@
 #include "xenia/ui/resources.h"
 #include "xenia/ui/ui_event.h"
 #include "xenia/ui/window.h"
+#include "xenia/ui/x360_toast.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "third_party/stb/stb_image.h"
@@ -168,6 +170,7 @@ void ImGuiDrawer::Initialize() {
 
   InitializeFonts(font_size);
   InitializeFonts(title_font_size);
+  LoadX360ToastFont(io);
 
 #ifdef XE_PLATFORM_LINUX
   io.SetClipboardTextFn = SetClipboardText;
@@ -524,6 +527,66 @@ void ImGuiDrawer::InitializeFonts(const float font_size) {
   LoadJapaneseFont(io, font_size);
 }
 
+void ImGuiDrawer::LoadX360ToastFont(ImGuiIO& io) {
+  // Only when the Xbox 360 toast resources are available.
+  if (!X360ToastScene::Get()) {
+    return;
+  }
+  const auto font_path = GetX360ToastFolder() / "XboxTC.ttf";
+  if (!std::filesystem::exists(font_path)) {
+    return;
+  }
+  // Rasterized big enough to stay sharp at 4K.
+  ImFontConfig font_config;
+  font_config.OversampleH = font_config.OversampleV = 1;
+  static constexpr ImWchar x360_glyph_ranges[] = {
+      0x0020, 0x024F,  // Latin
+      0x2000, 0x206F,  // General Punctuation
+      0x20A0, 0x20CF,  // Currency Symbols
+      0x2100, 0x214F,  // Letterlike Symbols
+      0,
+  };
+  x360_font_ =
+      io.Fonts->AddFontFromFileTTF(xe::path_to_utf8(font_path).c_str(), 56.0f,
+                                   &font_config, x360_glyph_ranges);
+  if (!x360_font_) {
+    XELOGW("Logros360: could not load {}", xe::path_to_utf8(font_path));
+  }
+}
+
+ImmediateTexture* ImGuiDrawer::GetFileTexture(
+    const std::filesystem::path& path) {
+  if (!immediate_drawer_) {
+    return nullptr;
+  }
+  auto it = file_textures_.find(path);
+  if (it != file_textures_.end()) {
+    return it->second.get();
+  }
+  std::unique_ptr<ImmediateTexture> texture;
+  std::ifstream file(path, std::ios::binary);
+  if (file.is_open()) {
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)),
+                              std::istreambuf_iterator<char>());
+    int width, height, channels;
+    unsigned char* image_data =
+        stbi_load_from_memory(data.data(), static_cast<int>(data.size()),
+                              &width, &height, &channels, STBI_rgb_alpha);
+    if (image_data) {
+      texture = immediate_drawer_->CreateTexture(
+          width, height, ImmediateTextureFilter::kLinear, false,
+          reinterpret_cast<uint8_t*>(image_data));
+      stbi_image_free(image_data);
+    }
+  }
+  if (!texture) {
+    XELOGW("Could not load image {}", xe::path_to_utf8(path));
+  }
+  ImmediateTexture* result = texture.get();
+  file_textures_.emplace(path, std::move(texture));
+  return result;
+}
+
 void ImGuiDrawer::SetupFontTexture() {
   if (font_texture_ || !immediate_drawer_) {
     return;
@@ -565,6 +628,7 @@ void ImGuiDrawer::SetImmediateDrawer(ImmediateDrawer* new_immediate_drawer) {
     font_texture_.reset();
     locked_achievement_icon_.reset();
     notification_icon_textures_.clear();
+    file_textures_.clear();
   }
   immediate_drawer_ = new_immediate_drawer;
   if (immediate_drawer_) {
