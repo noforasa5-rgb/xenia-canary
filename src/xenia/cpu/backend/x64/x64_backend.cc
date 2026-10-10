@@ -1566,8 +1566,9 @@ void* X64HelperEmitter::EmitTryAcquireReservationHelper() {
 
   btr(GetBackendFlagsPtr(), kX64BackendHasReserveBit);
   mov(r8, GetBackendCtxPtr(offsetof(X64BackendContext, reserve_helper_)));
-  jc(already_has_a_reservation);
+  jc(already_has_a_reservation, T_NEAR);
 
+  L(acquire_new_reservation);
   shr(ecx, RESERVE_BLOCK_SHIFT);
   xor_(r9d, r9d);
   mov(edx, ecx);
@@ -1589,7 +1590,16 @@ void* X64HelperEmitter::EmitTryAcquireReservationHelper() {
   or_(GetBackendCtxPtr(offsetof(X64BackendContext, flags)), r9d);
   ret();
   L(already_has_a_reservation);
-  DebugBreak();
+  // A reserved load while already holding a reservation is legal on PPC: the
+  // new reservation simply replaces the old one. Release the old reservation
+  // bit (rdx/r9 are clobbered by the normal path anyway) and acquire the new
+  // one instead of breaking.
+  mov(rdx,
+      GetBackendCtxPtr(offsetof(X64BackendContext, cached_reserve_offset)));
+  mov(r9d, GetBackendCtxPtr(offsetof(X64BackendContext, cached_reserve_bit)));
+  lock();
+  btr(qword[rdx], r9);
+  jmp(acquire_new_reservation, T_NEAR);
 
   code_offsets.prolog_stack_alloc = getSize();
   code_offsets.body = getSize();
@@ -1663,10 +1673,27 @@ void* X64HelperEmitter::EmitReservedStoreHelper(bool bit64) {
   // could be the same label, but otherwise we don't know where we came from
   // when one gets triggered
   L(reservation_isnt_for_our_addr);
-  DebugBreak();
+  // A conditional store to an address other than the reserved one is legal on
+  // PPC: the store is not performed and the reservation is lost. Release the
+  // reservation bit we are holding so other threads can acquire that block,
+  // then report failure (ZF=0) so the guest retries its lwarx/stwcx loop.
+  mov(rdx,
+      GetBackendCtxPtr(offsetof(X64BackendContext, cached_reserve_offset)));
+  mov(ecx, GetBackendCtxPtr(offsetof(X64BackendContext, cached_reserve_bit)));
+  lock();
+  btr(qword[rdx], rcx);
+  xor_(eax, eax);
+  cmp(ax, 0x0101);
+  ret();
 
   L(somehow_double_cleared);  // somehow, something else cleared our reserve??
-  DebugBreak();
+  // The cmpxchg above already ran, so report its real outcome (ZF) instead of
+  // breaking; reporting failure here could make the guest apply its update
+  // twice.
+  setz(al);
+  mov(ah, 1);
+  cmp(ax, 0x0101);
+  ret();
 
   code_offsets.prolog_stack_alloc = getSize();
   code_offsets.body = getSize();
