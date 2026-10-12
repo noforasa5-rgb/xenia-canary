@@ -4306,6 +4306,13 @@ XE_NOINLINE void D3D12CommandProcessor::UpdateSystemConstantValues_Impl(
   if (rb_depth_info.depth_format == xenos::DepthRenderTargetFormat::kD24FS8) {
     flags |= DxbcShaderTranslator::kSysFlag_DepthFloat24;
   }
+  // Interpolant evaluation offset compensating the half-pixel fill.
+  if (viewport_info.half_pixel_fill_axes & 0b01) {
+    flags |= DxbcShaderTranslator::kSysFlag_HalfPixelFillEvalX;
+  }
+  if (viewport_info.half_pixel_fill_axes & 0b10) {
+    flags |= DxbcShaderTranslator::kSysFlag_HalfPixelFillEvalY;
+  }
   // Alpha test.
   xenos::CompareFunction alpha_test_function =
       rb_colorcontrol.alpha_test_enable ? rb_colorcontrol.alpha_func

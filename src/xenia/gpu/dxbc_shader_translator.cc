@@ -21,6 +21,8 @@
 #include "xenia/gpu/xenos.h"
 #include "xenia/ui/graphics_provider.h"
 
+DECLARE_bool(draw_resolution_scale_fill_half_pixel_offset);
+
 // The test case for AMD is 4D5307E6 (checked in 2018).
 DEFINE_bool(dxbc_switch, true,
             "Use switch rather than if for flow control. Turning this off or "
@@ -708,18 +710,56 @@ void DxbcShaderTranslator::StartPixelShader() {
   // references them after only initializing them conditionally, and copy
   // interpolants to GPRs.
   uint32_t interpolator_mask = GetModificationInterpolatorMask();
+  // If the vertex half-pixel offset may be moved by half a host pixel toward
+  // the top-left to cover the first host row / column of draws with resolution
+  // scaling (draw_resolution_scale_fill_half_pixel_offset), evaluate the
+  // interpolants half a host pixel toward the top-left (-8/16 of a pixel, the
+  // farthest snapped offset allowed) to get the same attribute values as
+  // without the move. Shaders deriving decisions from interpolated pixel
+  // coordinates rely on them being exactly the same as without the move, such
+  // as the 545408A7 depth reupload shader choosing the 40-sample tile half to
+  // swap, which otherwise picks the wrong half in one host column every 40
+  // guest pixels.
+  uint32_t half_pixel_fill_eval_temp = UINT32_MAX;
+  if (cvars::draw_resolution_scale_fill_half_pixel_offset &&
+      (GetCurrentDrawResolutionScaleX() > 1 ||
+       GetCurrentDrawResolutionScaleY() > 1) &&
+      (interpolator_mask & ~(param_gen_interpolator < xenos::kMaxInterpolators
+                                 ? UINT32_C(1) << param_gen_interpolator
+                                 : UINT32_C(0)))) {
+    half_pixel_fill_eval_temp = PushSystemTemp();
+    a_.OpAnd(dxbc::Dest::R(half_pixel_fill_eval_temp, 0b0011),
+             LoadFlagsSystemConstant(),
+             dxbc::Src::LU(kSysFlag_HalfPixelFillEvalX,
+                           kSysFlag_HalfPixelFillEvalY, 0, 0));
+    a_.OpMovC(dxbc::Dest::R(half_pixel_fill_eval_temp, 0b0011),
+              dxbc::Src::R(half_pixel_fill_eval_temp), dxbc::Src::LI(-8),
+              dxbc::Src::LI(0));
+  }
   for (uint32_t i = 0; i < register_count(); ++i) {
     if (i == param_gen_interpolator) {
       continue;
     }
-    a_.OpMov(uses_register_dynamic_addressing ? dxbc::Dest::X(0, i)
-                                              : dxbc::Dest::R(i),
-             (i < xenos::kMaxInterpolators &&
-              (interpolator_mask & (UINT32_C(1) << i)))
-                 ? dxbc::Src::V1D(in_reg_ps_interpolators_ +
-                                  xe::bit_count(interpolator_mask &
-                                                ((UINT32_C(1) << i) - 1)))
-                 : dxbc::Src::LF(0.0f));
+    dxbc::Dest gpr_dest = uses_register_dynamic_addressing ? dxbc::Dest::X(0, i)
+                                                           : dxbc::Dest::R(i);
+    if (i < xenos::kMaxInterpolators &&
+        (interpolator_mask & (UINT32_C(1) << i))) {
+      dxbc::Src interpolator_src = dxbc::Src::V1D(
+          in_reg_ps_interpolators_ +
+          xe::bit_count(interpolator_mask & ((UINT32_C(1) << i) - 1)));
+      if (half_pixel_fill_eval_temp != UINT32_MAX) {
+        a_.OpEvalSnapped(gpr_dest, interpolator_src,
+                         dxbc::Src::R(half_pixel_fill_eval_temp));
+      } else {
+        a_.OpMov(gpr_dest, interpolator_src);
+      }
+    } else {
+      a_.OpMov(gpr_dest, dxbc::Src::LF(0.0f));
+    }
+  }
+  if (half_pixel_fill_eval_temp != UINT32_MAX) {
+    // Release half_pixel_fill_eval_temp.
+    PopSystemTemp();
   }
 
   // Write the pixel parameters to the specified interpolator register

@@ -262,6 +262,12 @@ class DxbcShaderTranslator : public ShaderTranslator {
     // taking into account the potential relation with occlusion queries (but
     // should be safe at least temporarily).
     kSysFlag_ROVDepthStencilEarlyWrite_Shift,
+    // The vertex half-pixel offset was moved by half a host pixel up / left
+    // (draw_resolution_scale_fill_half_pixel_offset) to cover the first host
+    // row / column of the draw - evaluate the interpolants half a host pixel
+    // up / left to get the same attribute values as without the move.
+    kSysFlag_HalfPixelFillEvalX_Shift,
+    kSysFlag_HalfPixelFillEvalY_Shift,
 
     kSysFlag_Count,
 
@@ -287,6 +293,8 @@ class DxbcShaderTranslator : public ShaderTranslator {
     kSysFlag_ROVStencilTest = 1u << kSysFlag_ROVStencilTest_Shift,
     kSysFlag_ROVDepthStencilEarlyWrite =
         1u << kSysFlag_ROVDepthStencilEarlyWrite_Shift,
+    kSysFlag_HalfPixelFillEvalX = 1u << kSysFlag_HalfPixelFillEvalX_Shift,
+    kSysFlag_HalfPixelFillEvalY = 1u << kSysFlag_HalfPixelFillEvalY_Shift,
   };
   static_assert(kSysFlag_Count <= 32, "Too many flags in the system constants");
 

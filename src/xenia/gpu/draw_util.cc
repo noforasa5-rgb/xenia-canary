@@ -316,6 +316,7 @@ static float ViewportRecip2_0(float f) {
 // relatively high on uprof when i uc to 1.7ghz
 void GetHostViewportInfo(GetViewportInfoArgs* XE_RESTRICT args,
                          ViewportInfo& viewport_info_out) {
+  viewport_info_out.half_pixel_fill_axes = 0;
   assert_not_zero(args->draw_resolution_scale_x);
   assert_not_zero(args->draw_resolution_scale_y);
 
@@ -489,6 +490,7 @@ void GetHostViewportInfo(GetViewportInfoArgs* XE_RESTRICT args,
         if (axis_resolution_scale > 1) {
           offset_add_xy[j] -= 0.5f * float(axis_resolution_scale - 1) /
                               float(axis_resolution_scale);
+          viewport_info_out.half_pixel_fill_axes |= uint32_t(1) << j;
         }
       }
     }

@@ -341,6 +341,10 @@ struct ViewportInfo {
   // The scale is applied before the offset (like using multiply-add).
   float ndc_scale[3];
   float ndc_offset[3];
+  // Bit 0 - X, bit 1 - Y: the half-pixel offset was moved by half a host pixel
+  // toward the top-left (draw_resolution_scale_fill_half_pixel_offset), and
+  // the pixel shader should evaluate the interpolants with the opposite offset.
+  uint32_t half_pixel_fill_axes;
 };
 static_assert(sizeof(xenos::DepthRenderTargetFormat) == sizeof(uint32_t),
               "Change in depthrendertargetformat throws off "

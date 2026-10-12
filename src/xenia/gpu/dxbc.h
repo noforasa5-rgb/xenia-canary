@@ -1518,6 +1518,7 @@ enum class Opcode : uint32_t {
   kAtomicAnd = 169,
   kAtomicOr = 170,
   kAtomicIAdd = 173,
+  kEvalSnapped = 203,
   kEvalSampleIndex = 204,
   kEvalCentroid = 205,
 };
@@ -2425,6 +2426,20 @@ class Assembler {
   void OpAtomicIAdd(const Dest& dest, const Src& address,
                     uint32_t address_components, const Src& value) {
     EmitAtomicOp(Opcode::kAtomicIAdd, dest, address, address_components, value);
+  }
+  // The offset is an integer 2-component vector in 1/16 pixel units in the
+  // range of [-8, 7], relative to the pixel center.
+  void OpEvalSnapped(const Dest& dest, const Src& value, const Src& offset) {
+    uint32_t dest_write_mask = dest.GetMask();
+    uint32_t operands_length = dest.GetLength() +
+                               value.GetLength(dest_write_mask) +
+                               offset.GetLength(0b0011);
+    code_.reserve(code_.size() + 1 + operands_length);
+    code_.push_back(OpcodeToken(Opcode::kEvalSnapped, operands_length));
+    dest.Write(code_);
+    value.Write(code_, false, dest_write_mask);
+    offset.Write(code_, true, 0b0011);
+    ++stat_.instruction_count;
   }
   void OpEvalSampleIndex(const Dest& dest, const Src& value,
                          const Src& sample_index) {
