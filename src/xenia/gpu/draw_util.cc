@@ -30,11 +30,19 @@ DEFINE_bool(
 
 DEFINE_bool(
     draw_resolution_scale_fill_half_pixel_offset, false,
-    "When using resolution scaling without MSAA, shift the vertex half-pixel "
-    "offset so it lands on host pixel centers rather than whole guest pixels, "
-    "so the topmost and leftmost host pixels of draws are covered. Fixes gaps "
+    "When using resolution scaling without MSAA, shift the vertical vertex "
+    "half-pixel offset so it lands on host pixel centers rather than whole "
+    "guest pixels, so the topmost host pixels of draws are covered. Fixes gaps "
     "between render target strips drawn separately (545408A7 draws a 1280x32 "
     "strip pass) at the cost of a small sub-pixel shift.",
+    "GPU");
+DEFINE_bool(
+    draw_resolution_scale_fill_half_pixel_offset_x, false,
+    "With draw_resolution_scale_fill_half_pixel_offset, also shift the "
+    "horizontal half-pixel offset so the leftmost host pixels of draws are "
+    "covered. Pixel shader interpolants are evaluated with the opposite offset "
+    "on D3D12 to keep their values, so the leftmost host pixel column of draws "
+    "gets attributes slightly outside the primitive.",
     "GPU");
 
 DEFINE_bool(
@@ -484,12 +492,24 @@ void GetHostViewportInfo(GetViewportInfoArgs* XE_RESTRICT args,
     if (cvars::draw_resolution_scale_fill_half_pixel_offset &&
         !(args->xenos_sample_positions &&
           args->msaa_samples != xenos::MsaaSamples::k1X)) {
+      // Vertically, the attributes are not compensated - a half host pixel
+      // shift is harmless there, while evaluating them outside the primitive
+      // in the newly covered top row makes draws starting at predicated tile
+      // boundaries sample outside their source data (a line between the tiles
+      // of 545408A7). Horizontally, attribute-derived decisions are more
+      // sensitive (the 545408A7 depth reupload shader chooses the 40-sample
+      // tile half from the interpolated X), so the horizontal shift is
+      // optional, and compensated in the pixel shader when enabled.
       for (uint32_t j = 0; j < 2; ++j) {
         uint32_t axis_resolution_scale =
             j ? args->draw_resolution_scale_y : args->draw_resolution_scale_x;
-        if (axis_resolution_scale > 1) {
-          offset_add_xy[j] -= 0.5f * float(axis_resolution_scale - 1) /
-                              float(axis_resolution_scale);
+        if (axis_resolution_scale <= 1 ||
+            (!j && !cvars::draw_resolution_scale_fill_half_pixel_offset_x)) {
+          continue;
+        }
+        offset_add_xy[j] -= 0.5f * float(axis_resolution_scale - 1) /
+                            float(axis_resolution_scale);
+        if (!j) {
           viewport_info_out.half_pixel_fill_axes |= uint32_t(1) << j;
         }
       }
