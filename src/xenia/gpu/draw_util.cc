@@ -29,6 +29,15 @@ DEFINE_bool(
     "GPU");
 
 DEFINE_bool(
+    draw_resolution_scale_fill_half_pixel_offset, false,
+    "When using resolution scaling without MSAA, shift the vertex half-pixel "
+    "offset so it lands on host pixel centers rather than whole guest pixels, "
+    "so the topmost and leftmost host pixels of draws are covered. Fixes gaps "
+    "between render target strips drawn separately (545408A7 draws a 1280x32 "
+    "strip pass) at the cost of a small sub-pixel shift.",
+    "GPU");
+
+DEFINE_bool(
     depth_bias_shader_offset, false,
     "Route decal host render target draws with polygon offset through shader "
     "depth. This avoids Z-fighting in games that rely on tiny depth bias "
@@ -467,6 +476,22 @@ void GetHostViewportInfo(GetViewportInfoArgs* XE_RESTRICT args,
       pa_su_vtx_cntl.pix_center == xenos::PixelCenter::kD3DZero) {
     offset_add_xy[0] += 0.5f;
     offset_add_xy[1] += 0.5f;
+    // With resolution scaling, a 0.5 guest pixel offset is a whole host pixel
+    // or more, leaving the first host row / column of every draw uncovered.
+    // Optionally offset by half a host pixel instead (the MSAA path below
+    // already does the equivalent for Xenos sample positions).
+    if (cvars::draw_resolution_scale_fill_half_pixel_offset &&
+        !(args->xenos_sample_positions &&
+          args->msaa_samples != xenos::MsaaSamples::k1X)) {
+      for (uint32_t j = 0; j < 2; ++j) {
+        uint32_t axis_resolution_scale =
+            j ? args->draw_resolution_scale_y : args->draw_resolution_scale_x;
+        if (axis_resolution_scale > 1) {
+          offset_add_xy[j] -= 0.5f * float(axis_resolution_scale - 1) /
+                              float(axis_resolution_scale);
+        }
+      }
+    }
   }
   // Only scale the whole pixel part of the viewport offset. Keep the Xenos
   // sample offset in host pixels since programmed sample positions don't scale
